@@ -10,13 +10,6 @@
  */
 
 // These values are established by empiricism with tests (tradeoff: performance VS precision)
-var NEWTON_ITERATIONS = 4;
-var NEWTON_MIN_SLOPE = 0.001;
-var SUBDIVISION_PRECISION = 0.0000001;
-var SUBDIVISION_MAX_ITERATIONS = 10;
-
-var kSplineTableSize = 11;
-var kSampleStepSize = 1.0 / (kSplineTableSize - 1.0);
 
 var float32ArraySupported = typeof Float32Array === "function";
 
@@ -29,34 +22,7 @@ function calcBezier (aT, aA1, aA2) {
   return ((A(aA1, aA2)*aT + B(aA1, aA2))*aT + C(aA1))*aT;
 }
 
-// Returns dx/dt given t, x1, and x2, or dy/dt given t, y1, and y2.
-function getSlope (aT, aA1, aA2) {
-  return 3.0 * A(aA1, aA2)*aT*aT + 2.0 * B(aA1, aA2) * aT + C(aA1);
-}
 
-function binarySubdivide (aX, aA, aB, mX1, mX2) {
-  var currentX, currentT, i = 0;
-  do {
-    currentT = aA + (aB - aA) / 2.0;
-    currentX = calcBezier(currentT, mX1, mX2) - aX;
-    if (currentX > 0.0) {
-      aB = currentT;
-    } else {
-      aA = currentT;
-    }
-  } while (Math.abs(currentX) > SUBDIVISION_PRECISION && ++i < SUBDIVISION_MAX_ITERATIONS);
-  return currentT;
-}
-
-function newtonRaphsonIterate (aX, aGuessT, mX1, mX2) {
-  for (var i = 0; i < NEWTON_ITERATIONS; ++i) {
-    var currentSlope = getSlope(aGuessT, mX1, mX2);
-    if (currentSlope === 0.0) return aGuessT;
-    var currentX = calcBezier(aGuessT, mX1, mX2) - aX;
-    aGuessT -= currentX / currentSlope;
-  }
-  return aGuessT;
-}
 
 /**
  * points is an array of [ mX1, mY1, mX2, mY2 ]
@@ -82,7 +48,6 @@ function BezierEasing (points, b, c, d) {
   this._str = "BezierEasing("+points+")";
   this._css = "cubic-bezier("+points+")";
   this._p = points;
-  this._mSampleValues = float32ArraySupported ? new Float32Array(kSplineTableSize) : new Array(kSplineTableSize);
   this._precomputed = false;
 
   this.get = this.get.bind(this);
@@ -123,47 +88,67 @@ BezierEasing.prototype = {
       mX2 = this._p[2],
       mY2 = this._p[3];
     this._precomputed = true;
-    if (mX1 !== mY1 || mX2 !== mY2)
-      this._calcSampleValues();
   },
 
-  _calcSampleValues: function () {
-    var mX1 = this._p[0],
-      mX2 = this._p[2];
-    for (var i = 0; i < kSplineTableSize; ++i) {
-      this._mSampleValues[i] = calcBezier(i * kSampleStepSize, mX1, mX2);
-    }
-  },
 
   /**
    * getTForX chose the fastest heuristic to determine the percentage value precisely from a given X projection.
    */
   _getTForX: function (aX) {
     var mX1 = this._p[0],
-      mX2 = this._p[2],
-      mSampleValues = this._mSampleValues;
+    mX2 = this._p[2];
 
-    var intervalStart = 0.0;
-    var currentSample = 1;
-    var lastSample = kSplineTableSize - 1;
+    var a = (1 - 3*mX2 + 3*mX1); // get rid of the a (of ax^3+bx^2…+d=0) by effecively making it 1
+                                // only use A B C, where A = b/a, B = c/a…
 
-    for (; currentSample !== lastSample && mSampleValues[currentSample] <= aX; ++currentSample) {
-      intervalStart += kSampleStepSize;
+    var A = (3*mX2 - 6*mX1)/a;
+    var B = 3*mX1/a;
+    var C = -aX/a;
+
+
+    var Q, R, D, S, T, Im;
+ 
+    Q = (3*B - Math.pow(A, 2))/9;
+    R = (9*A*B - 27*C - 2*Math.pow(A, 3))/54;
+    D = Math.pow(Q, 3) + Math.pow(R, 2);    // polynomial discriminant
+
+    var t=Array();
+    var returnVal = 0;
+
+    if (D >= 0)                                 // complex or duplicate roots
+    {
+        var S = sgn(R + Math.sqrt(D))*Math.pow(Math.abs(R + Math.sqrt(D)),(1/3));
+        var T = sgn(R - Math.sqrt(D))*Math.pow(Math.abs(R - Math.sqrt(D)),(1/3));
+ 
+        t[0] = -A/3 + (S + T);                    // real root
+        t[1] = -A/3 - (S + T)/2;                  // real part of complex root
+        t[2] = -A/3 - (S + T)/2;                  // real part of complex root
+        Im = Math.abs(Math.sqrt(3)*(S - T)/2);    // complex part of root pair   
+ 
+        /*discard complex roots*/
+        if (Im!=0) {
+            return t[0];
+        } else {
+          return t[1];
+        }
+    } else {                                         // distinct real roots
+        var th = Math.acos(R/Math.sqrt(-Math.pow(Q, 3)));
+        var tsqQ = 2*Math.sqrt(-Q);
+
+        t[0] = tsqQ*Math.cos(th/3) - A/3;
+        t[1] = tsqQ*Math.cos((th + 2*Math.PI)/3) - A/3;
+        t[2] = tsqQ*Math.cos((th + 4*Math.PI)/3) - A/3;
+        // Im = 0.0;
+        /*find in spec roots*/
+        for (var i=0;i<3;i++) 
+            if (t[i]>=0 || t[i]<=1.0) return t[i];
     }
-    --currentSample;
-
-    // Interpolate to provide an initial guess for t
-    var dist = (aX - mSampleValues[currentSample]) / (mSampleValues[currentSample+1] - mSampleValues[currentSample]);
-    var guessForT = intervalStart + dist * kSampleStepSize;
-
-    var initialSlope = getSlope(guessForT, mX1, mX2);
-    if (initialSlope >= NEWTON_MIN_SLOPE) {
-      return newtonRaphsonIterate(aX, guessForT, mX1, mX2);
-    } else if (initialSlope === 0.0) {
-      return guessForT;
-    } else {
-      return binarySubdivide(aX, intervalStart, intervalStart + kSampleStepSize, mX1, mX2);
-    }
+ 
+ 
+    /*sort but place -1 at the end*/
+    // t=sortSpecial(t);
+ 
+    return 0;
   }
 };
 
