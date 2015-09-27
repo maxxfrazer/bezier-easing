@@ -21,7 +21,11 @@ function C (aA1)      { return 3.0 * aA1; }
 function calcBezier (aT, aA1, aA2) {
   return ((A(aA1, aA2)*aT + B(aA1, aA2))*aT + C(aA1))*aT;
 }
-
+function sgn (val) {
+  if (val < 0)
+    return -1;
+  return 1;
+}
 
 
 /**
