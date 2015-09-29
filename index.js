@@ -131,9 +131,10 @@ BezierEasing.prototype = {
  
         /*discard complex roots*/
         if (Im!=0) {
+          if (t[0]>=0 && t[0]<=1.0)
             return t[0];
-        } else {
-          return t[1];
+          else // shouldn't ever get here
+            return 0
         }
     } else {                                         // distinct real roots
         var th = Math.acos(R/Math.sqrt(-Math.pow(Q, 3)));
@@ -142,16 +143,14 @@ BezierEasing.prototype = {
         t[0] = tsqQ*Math.cos(th/3) - A/3;
         t[1] = tsqQ*Math.cos((th + 2*Math.PI)/3) - A/3;
         t[2] = tsqQ*Math.cos((th + 4*Math.PI)/3) - A/3;
-        // Im = 0.0;
-        /*find in spec roots*/
-        for (var i=0;i<3;i++) 
-            if (t[i]>=0 || t[i]<=1.0) return t[i];
+        Im = 0.0;
     }
  
- 
-    /*sort but place -1 at the end*/
-    // t=sortSpecial(t);
- 
+    /*find in spec roots*/
+    for (var i=0;i<3;i++) 
+       if (t[i]>=0 && t[i]<=1.0) return t[i]; 
+
+    /*something has messed up, shouldn't ever get here*/
     return 0;
   }
 };
